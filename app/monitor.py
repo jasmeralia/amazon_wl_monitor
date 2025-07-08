@@ -51,12 +51,27 @@ def send_email(subject, body):
 
 def fetch_wishlist_items(url):
     headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    items = soup.find_all("h2", class_="a-size-base")
-    item_titles = [item.get_text(strip=True) for item in items]
-    return sorted(item_titles)
+    items = []
+    page = 1
+    while True:
+        paged_url = url
+        if "?" in url:
+            paged_url += f"&page={page}"
+        else:
+            paged_url += f"?page={page}"
+        response = requests.get(paged_url, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        page_items = soup.find_all("h2", class_="a-size-base")
+        if not page_items:
+            break
+        items.extend(item.get_text(strip=True) for item in page_items)
+        # Check for next page: Amazon disables the "Next" button when at the end
+        next_button = soup.find("li", class_="a-last")
+        if not next_button or "a-disabled" in next_button.get("class", []):
+            break
+        page += 1
+    return sorted(set(items))
 
 def load_cache():
     if os.path.exists(CACHE_FILE):

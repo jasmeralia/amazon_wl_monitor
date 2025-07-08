@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   wishlist-monitor:
-    build: .
+    image: ghcr.io/jasmeralia/amazon_wl_monitor:latest
     container_name: wishlist-monitor
     restart: unless-stopped
     env_file: .env
