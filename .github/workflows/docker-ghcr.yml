@@ -1,5 +1,9 @@
 name: Build and Publish Docker image to GHCR
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches: [master]
