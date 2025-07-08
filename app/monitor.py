@@ -6,6 +6,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
+import sys
 
 # ======= SETTINGS =======
 def parse_wishlists(env_value):
@@ -45,9 +46,9 @@ def send_email(subject, body):
             server.starttls()
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.sendmail(EMAIL_ADDRESS, TO_ADDRESS, msg.as_string())
-        print(f"Notification sent: {subject}")
+        log(f"Notification sent: {subject}")
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        log(f"Failed to send email: {e}")
 
 def fetch_wishlist_items(url):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -88,8 +89,13 @@ def compare_items(old_items, new_items):
     removed = [item for item in old_items if item not in new_items]
     return added, removed
 
+def log(msg):
+    print(msg, flush=True)
+    with open("/data/monitor.log", "a") as f:
+        f.write(msg + "\n")
+
 def monitor():
-    print("Starting wishlist monitor...")
+    log("Starting wishlist monitor...")
     cache = load_cache()
 
     while True:
@@ -99,7 +105,7 @@ def monitor():
             if not url:
                 continue
 
-            print(f"Checking wishlist '{name}': {url}")
+            log(f"Checking wishlist '{name}': {url}")
             try:
                 new_items = fetch_wishlist_items(url)
                 old_items = cache.get(url, [])
@@ -115,13 +121,13 @@ def monitor():
                     send_email(f"Amazon Wishlist Update: {name}", body)
                     cache[url] = new_items
                 else:
-                    print("No changes detected.")
+                    log("No changes detected.")
 
             except Exception as e:
-                print(f"Error checking '{name}' ({url}): {e}")
+                log(f"Error checking '{name}' ({url}): {e}")
 
         save_cache(cache)
-        print(f"Waiting {CHECK_INTERVAL} seconds before next check...")
+        log(f"Waiting {CHECK_INTERVAL} seconds before next check...")
         time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
