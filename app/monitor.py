@@ -9,6 +9,25 @@ import time
 import sys
 
 # ======= SETTINGS =======
+WISHLISTS_RAW = os.getenv("WISHLISTS", "")
+CACHE_FILE = "/data/wishlist_cache.json"
+USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+TO_ADDRESS = os.getenv("TO_ADDRESS")
+
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "21600"))  # seconds
+PAGE_SLEEP = int(os.getenv("PAGE_SLEEP", "5"))  # seconds between page requests
+WISHLIST_SLEEP = int(os.getenv("WISHLIST_SLEEP", "60"))  # seconds between wishlists
+FAIL_SLEEP = int(os.getenv("FAIL_SLEEP", "6000"))  # seconds to sleep on full fetch failure
+RETRY_COUNT = int(os.getenv("RETRY_COUNT", "3"))  # Number of retries on fetch failure
+RETRY_SLEEP = int(os.getenv("RETRY_SLEEP", "600"))  # Seconds to sleep between retries
+CAPTCHA_SLEEP = int(os.getenv("CAPTCHA_SLEEP", "600"))  # seconds to sleep on captcha/block (customizable)
+# ========================
+
 def parse_wishlists(env_value):
     wishlists = []
     for entry in env_value.split(","):
@@ -21,17 +40,6 @@ def parse_wishlists(env_value):
         else:
             wishlists.append({"name": entry.strip(), "url": entry.strip()})
     return wishlists
-
-WISHLISTS = parse_wishlists(os.getenv("WISHLISTS", ""))
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "21600"))  # seconds
-CACHE_FILE = "/data/wishlist_cache.json"
-
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-TO_ADDRESS = os.getenv("TO_ADDRESS")
-# ========================
 
 def send_email(subject, body):
     msg = MIMEMultipart()
@@ -51,7 +59,7 @@ def send_email(subject, body):
         log(f"Failed to send email: {e}")
 
 def fetch_wishlist_items(url):
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": USER_AGENT}
     items = []
     page = 1
     try:
@@ -61,18 +69,37 @@ def fetch_wishlist_items(url):
                 paged_url += f"&page={page}"
             else:
                 paged_url += f"?page={page}"
-            response = requests.get(paged_url, headers=headers, timeout=15)
-            if response.status_code != 200:
-                log(f"Failed to fetch page {page} for {url}: HTTP {response.status_code}")
-                return None  # treat as fetch failure
+
+            # Retry logic
+            for attempt in range(1, RETRY_COUNT + 1):
+                try:
+                    response = requests.get(paged_url, headers=headers, timeout=15)
+                    if response.status_code == 200:
+                        break
+                    else:
+                        log(f"Attempt {attempt}: Failed to fetch page {page} for {url}: HTTP {response.status_code}")
+                except Exception as e:
+                    log(f"Attempt {attempt}: Exception fetching page {page} for {url}: {e}")
+                if attempt < RETRY_COUNT:
+                    log(f"Sleeping for {RETRY_SLEEP} seconds before retry...")
+                    time.sleep(RETRY_SLEEP)
+                else:
+                    log(f"Sleeping for {FAIL_SLEEP} seconds due to repeated fetch failure.")
+                    time.sleep(FAIL_SLEEP)
+                    return None  # treat as fetch failure
+
             soup = BeautifulSoup(response.text, "html.parser")
             page_items = soup.find_all("h2", class_="a-size-base")
             # Detect possible CAPTCHA or block page
             if page == 1 and not page_items:
                 if "captcha" in response.text.lower() or "Enter the characters you see below" in response.text:
                     log(f"CAPTCHA or block detected on page 1 for {url}.")
+                    log(f"Sleeping for {CAPTCHA_SLEEP} seconds due to CAPTCHA/block.")
+                    time.sleep(CAPTCHA_SLEEP)
                 else:
                     log(f"No items found on page 1 for {url}. Response start: {response.text[:200]}")
+                    log(f"Sleeping for {FAIL_SLEEP} seconds due to unexpected empty page.")
+                    time.sleep(FAIL_SLEEP)
                 return None  # treat as fetch failure
             if not page_items:
                 log(f"No items found on page {page} for {url}")
@@ -82,10 +109,12 @@ def fetch_wishlist_items(url):
             if not next_button or "a-disabled" in next_button.get("class", []):
                 break
             page += 1
-            time.sleep(1)  # polite delay between page requests
+            time.sleep(PAGE_SLEEP)  # polite delay between page requests
         return sorted(set(items))
     except Exception as e:
         log(f"Exception while fetching wishlist {url}: {e}")
+        log(f"Sleeping for {FAIL_SLEEP} seconds due to exception.")
+        time.sleep(FAIL_SLEEP)
         return None
 
 def load_cache():
@@ -149,11 +178,13 @@ def monitor():
             except Exception as e:
                 log(f"Error checking '{name}' ({url}): {e}")
 
-            time.sleep(3)  # delay between wishlists
+            time.sleep(WISHLIST_SLEEP)  # delay between wishlists
 
         save_cache(cache)
         log(f"Waiting {CHECK_INTERVAL} seconds before next check...")
         time.sleep(CHECK_INTERVAL)
+
+WISHLISTS = parse_wishlists(WISHLISTS_RAW)
 
 if __name__ == "__main__":
     monitor()
