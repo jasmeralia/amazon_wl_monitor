@@ -7,6 +7,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
 import sys
+import random
 
 # ======= SETTINGS =======
 WISHLISTS_RAW = os.getenv("WISHLISTS", "")
@@ -25,7 +26,7 @@ WISHLIST_SLEEP = int(os.getenv("WISHLIST_SLEEP", "60"))  # seconds between wishl
 FAIL_SLEEP = int(os.getenv("FAIL_SLEEP", "6000"))  # seconds to sleep on full fetch failure
 RETRY_COUNT = int(os.getenv("RETRY_COUNT", "3"))  # Number of retries on fetch failure
 RETRY_SLEEP = int(os.getenv("RETRY_SLEEP", "600"))  # Seconds to sleep between retries
-CAPTCHA_SLEEP = int(os.getenv("CAPTCHA_SLEEP", "600"))  # seconds to sleep on captcha/block (customizable)
+CAPTCHA_SLEEP = int(os.getenv("CAPTCHA_SLEEP", "1200"))  # seconds to sleep on captcha/block (customizable)
 # ========================
 
 def parse_wishlists(env_value):
@@ -148,7 +149,9 @@ def monitor():
     cache = load_cache()
 
     while True:
-        for wl in WISHLISTS:
+        wishlists = WISHLISTS.copy()
+        random.shuffle(wishlists)  # Randomize the order each interval
+        for wl in wishlists:
             name = wl["name"]
             url = wl["url"]
             if not url:

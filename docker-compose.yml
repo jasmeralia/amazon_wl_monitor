@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   wishlist-monitor:
     image: ghcr.io/jasmeralia/amazon_wl_monitor:latest
