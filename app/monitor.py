@@ -54,25 +54,39 @@ def fetch_wishlist_items(url):
     headers = {"User-Agent": "Mozilla/5.0"}
     items = []
     page = 1
-    while True:
-        paged_url = url
-        if "?" in url:
-            paged_url += f"&page={page}"
-        else:
-            paged_url += f"?page={page}"
-        response = requests.get(paged_url, headers=headers)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        page_items = soup.find_all("h2", class_="a-size-base")
-        if not page_items:
-            break
-        items.extend(item.get_text(strip=True) for item in page_items)
-        # Check for next page: Amazon disables the "Next" button when at the end
-        next_button = soup.find("li", class_="a-last")
-        if not next_button or "a-disabled" in next_button.get("class", []):
-            break
-        page += 1
-    return sorted(set(items))
+    try:
+        while True:
+            paged_url = url
+            if "?" in url:
+                paged_url += f"&page={page}"
+            else:
+                paged_url += f"?page={page}"
+            response = requests.get(paged_url, headers=headers, timeout=15)
+            if response.status_code != 200:
+                log(f"Failed to fetch page {page} for {url}: HTTP {response.status_code}")
+                return None  # treat as fetch failure
+            soup = BeautifulSoup(response.text, "html.parser")
+            page_items = soup.find_all("h2", class_="a-size-base")
+            # Detect possible CAPTCHA or block page
+            if page == 1 and not page_items:
+                if "captcha" in response.text.lower() or "Enter the characters you see below" in response.text:
+                    log(f"CAPTCHA or block detected on page 1 for {url}.")
+                else:
+                    log(f"No items found on page 1 for {url}. Response start: {response.text[:200]}")
+                return None  # treat as fetch failure
+            if not page_items:
+                log(f"No items found on page {page} for {url}")
+                break
+            items.extend(item.get_text(strip=True) for item in page_items)
+            next_button = soup.find("li", class_="a-last")
+            if not next_button or "a-disabled" in next_button.get("class", []):
+                break
+            page += 1
+            time.sleep(1)  # polite delay between page requests
+        return sorted(set(items))
+    except Exception as e:
+        log(f"Exception while fetching wishlist {url}: {e}")
+        return None
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
@@ -90,9 +104,15 @@ def compare_items(old_items, new_items):
     return added, removed
 
 def log(msg):
-    print(msg, flush=True)
-    with open("/data/monitor.log", "a") as f:
-        f.write(msg + "\n")
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{timestamp}] {msg}"
+    print(line, flush=True)
+    try:
+        with open("/data/monitor.log", "a") as f:
+            f.write(line + "\n")
+    except Exception as e:
+        print(f"Failed to write to /data/monitor.log: {e}", flush=True)
 
 def monitor():
     log("Starting wishlist monitor...")
@@ -108,6 +128,9 @@ def monitor():
             log(f"Checking wishlist '{name}': {url}")
             try:
                 new_items = fetch_wishlist_items(url)
+                if new_items is None:
+                    log(f"Skipping '{name}' due to fetch error.")
+                    continue
                 old_items = cache.get(url, [])
 
                 added, removed = compare_items(old_items, new_items)
@@ -125,6 +148,8 @@ def monitor():
 
             except Exception as e:
                 log(f"Error checking '{name}' ({url}): {e}")
+
+            time.sleep(3)  # delay between wishlists
 
         save_cache(cache)
         log(f"Waiting {CHECK_INTERVAL} seconds before next check...")
