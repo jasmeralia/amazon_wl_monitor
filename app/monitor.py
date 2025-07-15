@@ -112,13 +112,11 @@ def fetch_wishlist_items(url):
 
             for title_elem in title_elems:
                 name = title_elem.get_text(strip=True)
-                # Attempt to find product link
                 link_tag = title_elem.find_parent("a", class_="a-link-normal")
                 product_url = None
                 if link_tag and link_tag.get("href"):
                     href = link_tag["href"].split("?")[0]
                     product_url = href if href.startswith("http") else "https://www.amazon.com" + href
-                # Attempt to find price
                 price_elem = title_elem.find_next("span", class_="a-offscreen")
                 price = price_elem.get_text(strip=True) if price_elem else None
 
@@ -128,14 +126,12 @@ def fetch_wishlist_items(url):
                     "price": price
                 })
 
-            # Pagination
             next_button = soup.find("li", class_="a-last")
             if not next_button or "a-disabled" in next_button.get("class", []):
                 break
             page += 1
             time.sleep(PAGE_SLEEP)
 
-        # Deduplicate by URL or name
         unique = {}
         for item in items:
             key = item.get('url') or item['name']
@@ -162,23 +158,31 @@ def save_cache(cache):
 
 
 def compare_items(old_items, new_items):
-    # Map items by URL or name for diffing
-    old_map = {item.get('url') or item['name']: item for item in old_items}
-    new_map = {item.get('url') or item['name']: item for item in new_items}
+    # Normalize old_items (handle legacy list of names)
+    old_map = {}
+    for item in old_items:
+        if isinstance(item, dict):
+            key = item.get('url') or item.get('name')
+            old_map[key] = item
+        else:
+            name = item
+            old_map[name] = {'name': name, 'url': None, 'price': None}
+
+    # Normalize new_items (expected dicts)
+    new_map = {}
+    for item in new_items:
+        key = item.get('url') or item['name']
+        new_map[key] = item
 
     old_keys = set(old_map.keys())
     new_keys = set(new_map.keys())
 
-    added_keys = new_keys - old_keys
-    removed_keys = old_keys - new_keys
-
-    added = [new_map[k] for k in added_keys]
-    removed = [old_map[k] for k in removed_keys]
+    added = [new_map[k] for k in new_keys - old_keys]
+    removed = [old_map[k] for k in old_keys - new_keys]
 
     # Detect price changes
     price_changed = []
-    common_keys = old_keys & new_keys
-    for k in common_keys:
+    for k in old_keys & new_keys:
         old_price = old_map[k].get('price')
         new_price = new_map[k].get('price')
         if old_price and new_price and old_price != new_price:
