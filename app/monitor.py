@@ -26,7 +26,7 @@ WISHLIST_SLEEP = int(os.getenv("WISHLIST_SLEEP", "60"))  # seconds between wishl
 FAIL_SLEEP = int(os.getenv("FAIL_SLEEP", "6000"))  # seconds to sleep on full fetch failure
 RETRY_COUNT = int(os.getenv("RETRY_COUNT", "3"))  # Number of retries on fetch failure
 RETRY_SLEEP = int(os.getenv("RETRY_SLEEP", "600"))  # Seconds to sleep between retries
-CAPTCHA_SLEEP = int(os.getenv("CAPTCHA_SLEEP", "1200"))  # seconds to sleep on captcha/block (customizable)
+CAPTCHA_SLEEP = int(os.getenv("CAPTCHA_SLEEP", "1200"))  # seconds to sleep on captcha/block
 # ========================
 
 def parse_wishlists(env_value):
@@ -41,6 +41,7 @@ def parse_wishlists(env_value):
         else:
             wishlists.append({"name": entry.strip(), "url": entry.strip()})
     return wishlists
+
 
 def send_email(subject, body):
     msg = MIMEMultipart()
@@ -59,17 +60,15 @@ def send_email(subject, body):
     except Exception as e:
         log(f"Failed to send email: {e}")
 
+
 def fetch_wishlist_items(url):
     headers = {"User-Agent": USER_AGENT}
     items = []
     page = 1
+
     try:
         while True:
-            paged_url = url
-            if "?" in url:
-                paged_url += f"&page={page}"
-            else:
-                paged_url += f"?page={page}"
+            paged_url = url + ("&page=%d" % page if "?" in url else "?page=%d" % page)
 
             # Retry logic
             for attempt in range(1, RETRY_COUNT + 1):
@@ -87,36 +86,68 @@ def fetch_wishlist_items(url):
                 else:
                     log(f"Sleeping for {FAIL_SLEEP} seconds due to repeated fetch failure.")
                     time.sleep(FAIL_SLEEP)
-                    return None  # treat as fetch failure
+                    return None
 
             soup = BeautifulSoup(response.text, "html.parser")
-            page_items = soup.find_all("h2", class_="a-size-base")
-            # Detect possible CAPTCHA or block page
-            if page == 1 and not page_items:
-                if "captcha" in response.text.lower() or "Enter the characters you see below" in response.text:
+            title_elems = soup.select("h2.a-size-base")
+
+            # CAPTCHA or empty page detection
+            if page == 1 and not title_elems:
+                if "captcha" in response.text.lower() or "enter the characters you see below" in response.text.lower():
                     log(f"CAPTCHA or block detected on page 1 for {url}.")
                     log(f"Sleeping for {CAPTCHA_SLEEP} seconds due to CAPTCHA/block.")
                     time.sleep(CAPTCHA_SLEEP)
                 else:
-                    log(f"No items found on page 1 for {url}. Response start: {response.text[:200]}")
+                    log(f"No items found on page 1 for {url}. HTML snippet: {response.text[:200]}")
                     log(f"Sleeping for {FAIL_SLEEP} seconds due to unexpected empty page.")
                     time.sleep(FAIL_SLEEP)
-                return None  # treat as fetch failure
-            if not page_items:
+                return None
+
+            if not title_elems:
                 log(f"No items found on page {page} for {url}")
                 break
-            items.extend(item.get_text(strip=True) for item in page_items)
+
+            for title_elem in title_elems:
+                name = title_elem.get_text(strip=True)
+                # Attempt to find product link
+                link_tag = title_elem.find_parent("a", class_="a-link-normal")
+                product_url = None
+                if link_tag and link_tag.get("href"):
+                    href = link_tag["href"].split("?")[0]
+                    if href.startswith("http"):
+                        product_url = href
+                    else:
+                        product_url = "https://www.amazon.com" + href
+                # Attempt to find price
+                price_elem = title_elem.find_next("span", class_="a-offscreen")
+                price = price_elem.get_text(strip=True) if price_elem else None
+
+                items.append({
+                    "name": name,
+                    "url": product_url,
+                    "price": price
+                })
+
+            # Pagination
             next_button = soup.find("li", class_="a-last")
             if not next_button or "a-disabled" in next_button.get("class", []):
                 break
             page += 1
-            time.sleep(PAGE_SLEEP)  # polite delay between page requests
-        return sorted(set(items))
+            time.sleep(PAGE_SLEEP)
+
+        # Deduplicate by URL
+        unique = {}
+        for item in items:
+            key = item.get('url') or item['name']
+            unique[key] = item
+        return list(unique.values())
+
     except Exception as e:
         log(f"Exception while fetching wishlist {url}: {e}")
         log(f"Sleeping for {FAIL_SLEEP} seconds due to exception.")
         time.sleep(FAIL_SLEEP)
         return None
+
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
@@ -124,14 +155,21 @@ def load_cache():
             return json.load(f)
     return {}
 
+
 def save_cache(cache):
     with open(CACHE_FILE, "w") as f:
         json.dump(cache, f, indent=2)
 
+
 def compare_items(old_items, new_items):
-    added = [item for item in new_items if item not in old_items]
-    removed = [item for item in old_items if item not in new_items]
+    old_urls = {item.get('url') for item in old_items}
+    new_urls = {item.get('url') for item in new_items}
+    added_urls = new_urls - old_urls
+    removed_urls = old_urls - new_urls
+    added = [item for item in new_items if item.get('url') in added_urls]
+    removed = [item for item in old_items if item.get('url') in removed_urls]
     return added, removed
+
 
 def log(msg):
     from datetime import datetime
@@ -144,13 +182,14 @@ def log(msg):
     except Exception as e:
         print(f"Failed to write to /data/monitor.log: {e}", flush=True)
 
+
 def monitor():
     log("Starting wishlist monitor...")
     cache = load_cache()
 
     while True:
         wishlists = WISHLISTS.copy()
-        random.shuffle(wishlists)  # Randomize the order each interval
+        random.shuffle(wishlists)
         for wl in wishlists:
             name = wl["name"]
             url = wl["url"]
@@ -158,30 +197,30 @@ def monitor():
                 continue
 
             log(f"Checking wishlist '{name}': {url}")
-            try:
-                new_items = fetch_wishlist_items(url)
-                if new_items is None:
-                    log(f"Skipping '{name}' due to fetch error.")
-                    continue
-                old_items = cache.get(url, [])
+            new_items = fetch_wishlist_items(url)
+            if new_items is None:
+                log(f"Skipping '{name}' due to fetch error.")
+                continue
 
-                added, removed = compare_items(old_items, new_items)
+            old_items = cache.get(url, [])
+            added, removed = compare_items(old_items, new_items)
 
-                if added or removed:
-                    body = f"Changes detected in wishlist '{name}': {url}\n\n"
-                    if added:
-                        body += "✅ Added:\n" + "\n".join(f"- {item}" for item in added) + "\n"
-                    if removed:
-                        body += "❌ Removed:\n" + "\n".join(f"- {item}" for item in removed) + "\n"
-                    send_email(f"Amazon Wishlist Update: {name}", body)
-                    cache[url] = new_items
-                else:
-                    log("No changes detected.")
+            if added or removed:
+                body = f"Changes detected in wishlist '{name}': {url}\n\n"
+                if added:
+                    body += "✅ Added items with details:\n"
+                    for item in added:
+                        body += f"- {item['name']} | {item.get('price')} | {item.get('url')}\n"
+                if removed:
+                    body += "❌ Removed items:\n"
+                    for item in removed:
+                        body += f"- {item['name']} | {item.get('url')}\n"
+                send_email(f"Amazon Wishlist Update: {name}", body)
+                cache[url] = new_items
+            else:
+                log("No changes detected.")
 
-            except Exception as e:
-                log(f"Error checking '{name}' ({url}): {e}")
-
-            time.sleep(WISHLIST_SLEEP)  # delay between wishlists
+            time.sleep(WISHLIST_SLEEP)
 
         save_cache(cache)
         log(f"Waiting {CHECK_INTERVAL} seconds before next check...")
