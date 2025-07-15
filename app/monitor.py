@@ -12,7 +12,10 @@ import random
 # ======= SETTINGS =======
 WISHLISTS_RAW = os.getenv("WISHLISTS", "")
 CACHE_FILE = "/data/wishlist_cache.json"
-USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+USER_AGENT = os.getenv(
+    "USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+)
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -114,10 +117,7 @@ def fetch_wishlist_items(url):
                 product_url = None
                 if link_tag and link_tag.get("href"):
                     href = link_tag["href"].split("?")[0]
-                    if href.startswith("http"):
-                        product_url = href
-                    else:
-                        product_url = "https://www.amazon.com" + href
+                    product_url = href if href.startswith("http") else "https://www.amazon.com" + href
                 # Attempt to find price
                 price_elem = title_elem.find_next("span", class_="a-offscreen")
                 price = price_elem.get_text(strip=True) if price_elem else None
@@ -135,7 +135,7 @@ def fetch_wishlist_items(url):
             page += 1
             time.sleep(PAGE_SLEEP)
 
-        # Deduplicate by URL
+        # Deduplicate by URL or name
         unique = {}
         for item in items:
             key = item.get('url') or item['name']
@@ -162,13 +162,34 @@ def save_cache(cache):
 
 
 def compare_items(old_items, new_items):
-    old_urls = {item.get('url') for item in old_items}
-    new_urls = {item.get('url') for item in new_items}
-    added_urls = new_urls - old_urls
-    removed_urls = old_urls - new_urls
-    added = [item for item in new_items if item.get('url') in added_urls]
-    removed = [item for item in old_items if item.get('url') in removed_urls]
-    return added, removed
+    # Map items by URL or name for diffing
+    old_map = {item.get('url') or item['name']: item for item in old_items}
+    new_map = {item.get('url') or item['name']: item for item in new_items}
+
+    old_keys = set(old_map.keys())
+    new_keys = set(new_map.keys())
+
+    added_keys = new_keys - old_keys
+    removed_keys = old_keys - new_keys
+
+    added = [new_map[k] for k in added_keys]
+    removed = [old_map[k] for k in removed_keys]
+
+    # Detect price changes
+    price_changed = []
+    common_keys = old_keys & new_keys
+    for k in common_keys:
+        old_price = old_map[k].get('price')
+        new_price = new_map[k].get('price')
+        if old_price and new_price and old_price != new_price:
+            price_changed.append({
+                'name': new_map[k]['name'],
+                'url': k,
+                'old_price': old_price,
+                'new_price': new_price
+            })
+
+    return added, removed, price_changed
 
 
 def log(msg):
@@ -203,9 +224,9 @@ def monitor():
                 continue
 
             old_items = cache.get(url, [])
-            added, removed = compare_items(old_items, new_items)
+            added, removed, price_changed = compare_items(old_items, new_items)
 
-            if added or removed:
+            if added or removed or price_changed:
                 body = f"Changes detected in wishlist '{name}': {url}\n\n"
                 if added:
                     body += "✅ Added items with details:\n"
@@ -215,6 +236,13 @@ def monitor():
                     body += "❌ Removed items:\n"
                     for item in removed:
                         body += f"- {item['name']} | {item.get('url')}\n"
+                if price_changed:
+                    body += "🔄 Price changes:\n"
+                    for change in price_changed:
+                        body += (
+                            f"- {change['name']}: {change['old_price']} -> {change['new_price']} | {change['url']}\n"
+                        )
+
                 send_email(f"Amazon Wishlist Update: {name}", body)
                 cache[url] = new_items
             else:
