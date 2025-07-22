@@ -97,6 +97,7 @@ def send_email(subject, body):
 def fetch_wishlist_items(url, user_agent=None):
     session = requests.Session()
     mobile_url = normalize_wishlist_url(url)
+    log(f"Using mobile URL: {mobile_url}")
     headers = {
         "User-Agent": user_agent or USER_AGENT,
         "Accept-Language": "en-US,en;q=0.9",
@@ -148,11 +149,13 @@ def fetch_wishlist_items(url, user_agent=None):
                 name = title.get_text(strip=True) if title else None
                 price = itm.get('data-price') or (itm.select_one("span.a-offscreen").get_text(strip=True) if itm.select_one("span.a-offscreen") else None)
                 items.append({"name": name, "url": full, "price": price})
+            # Record the page just retrieved
+            last_page = page
             page += 1
             sd = random.uniform(PAGE_SLEEP*0.5, PAGE_SLEEP*1.5)
-            log(f"Sleeping {sd:.1f}s before fetching next page.")
+            log(f"Sleeping {sd:.1f}s after retrieving page {last_page}")
             time.sleep(sd)
-        unique = { (i.get('url') or i['name']): i for i in items }
+        unique = {(i.get('url') or i['name']): i for i in items}
         return list(unique.values())
     except Exception as e:
         sd = random.uniform(FAIL_SLEEP*0.5, FAIL_SLEEP*1.5)
