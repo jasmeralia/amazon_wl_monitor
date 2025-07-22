@@ -140,8 +140,9 @@ def fetch_wishlist_items(url, user_agent=None):
             if not li:
                 log(f"No items found on page {page}")
                 break
+            
+            page_count = len(li)
             for itm in li:
-                div = itm.select_one("[data-csa-c-item-id]")
                 href = itm.select_one("a.a-touch-link-image[href]")
                 urlp = href['href'].split("?")[0] if href else None
                 full = urlp if urlp and urlp.startswith("http") else ("https://www.amazon.com"+urlp if urlp else None)
@@ -149,12 +150,12 @@ def fetch_wishlist_items(url, user_agent=None):
                 name = title.get_text(strip=True) if title else None
                 price = itm.get('data-price') or (itm.select_one("span.a-offscreen").get_text(strip=True) if itm.select_one("span.a-offscreen") else None)
                 items.append({"name": name, "url": full, "price": price})
-            # Record the page just retrieved
+            total_count = len(items)
             last_page = page
-            page_item_count = len(li)
             page += 1
             sd = random.uniform(PAGE_SLEEP*0.5, PAGE_SLEEP*1.5)
-            log(f"Sleeping {sd:.1f}s after retrieving page {last_page} (found {page_item_count} items)")
+            log(f"Sleeping {sd:.1f}s after retrieving page {last_page} "
+                f"(page items: {page_count}, total items: {total_count})")
             time.sleep(sd)
         unique = {(i.get('url') or i['name']): i for i in items}
         return list(unique.values())
@@ -163,7 +164,6 @@ def fetch_wishlist_items(url, user_agent=None):
         log(f"Exception {e}; sleeping {sd:.1f}s.")
         time.sleep(sd)
         return None
-
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
