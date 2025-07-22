@@ -151,9 +151,10 @@ def fetch_wishlist_items(url, user_agent=None):
                 items.append({"name": name, "url": full, "price": price})
             # Record the page just retrieved
             last_page = page
+            page_item_count = len(li)
             page += 1
             sd = random.uniform(PAGE_SLEEP*0.5, PAGE_SLEEP*1.5)
-            log(f"Sleeping {sd:.1f}s after retrieving page {last_page}")
+            log(f"Sleeping {sd:.1f}s after retrieving page {last_page} (found {page_item_count} items)")
             time.sleep(sd)
         unique = {(i.get('url') or i['name']): i for i in items}
         return list(unique.values())
