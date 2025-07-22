@@ -161,10 +161,15 @@ def fetch_wishlist_items(url, user_agent=None):
                     seen.add(key)
                     items.append({"name": name, "url": full, "price": price})
                     page_count += 1
-                    log(f"Discovered new item: {name}")
+                    log(f"Discovered new item: {name} | {full}")
 
             total = len(seen)
             log(f"Page {page}: found {page_count} new items (total {total})")
+
+            # If no new items on this page, stop
+            if page_count == 0:
+                log(f"No new items on page {page}; ending pagination.")
+                break
 
             # Find next pagination token
             token_input = soup.select_one("form.scroll-state input.showMoreUrl")
