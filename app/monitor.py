@@ -96,8 +96,8 @@ def send_email(subject, body):
 
 def fetch_wishlist_items(url, user_agent=None):
     session = requests.Session()
-    mobile_url = normalize_wishlist_url(url)
-    log(f"Using mobile URL: {mobile_url}")
+    next_url = normalize_wishlist_url(url)
+    log(f"Using mobile URL: {next_url}")
     headers = {
         "User-Agent": user_agent or USER_AGENT,
         "Accept-Language": "en-US,en;q=0.9",
@@ -105,25 +105,26 @@ def fetch_wishlist_items(url, user_agent=None):
         "Referer": "https://www.amazon.com/"
     }
     items = []
-    seen_keys = set()
+    seen = set()
     page = 1
+
     try:
-        while True:
-            paged = mobile_url + ("&page=%d" % page if "?" in mobile_url else "?page=%d" % page)
-            for attempt in range(1, RETRY_COUNT + 1):
+        while next_url:
+            # Fetch page
+            for attempt in range(1, RETRY_COUNT+1):
                 try:
-                    resp = session.get(paged, headers=headers, timeout=15)
+                    resp = session.get(next_url, headers=headers, timeout=15)
                     if resp.status_code == 200:
                         break
                     log(f"Attempt {attempt}: HTTP {resp.status_code} for page {page}")
                 except Exception as e:
                     log(f"Attempt {attempt}: Exception fetching page {page}: {e}")
                 if attempt < RETRY_COUNT:
-                    sd = random.uniform(RETRY_SLEEP * 0.5, RETRY_SLEEP * 1.5)
-                    log(f"Sleeping {sd:.1f}s before retry attempt {attempt+1}.")
+                    sd = random.uniform(RETRY_SLEEP*0.5, RETRY_SLEEP*1.5)
+                    log(f"Sleeping {sd:.1f}s before retry {attempt+1}.")
                     time.sleep(sd)
                 else:
-                    sd = random.uniform(FAIL_SLEEP * 0.5, FAIL_SLEEP * 1.5)
+                    sd = random.uniform(FAIL_SLEEP*0.5, FAIL_SLEEP*1.5)
                     log(f"Sleeping {sd:.1f}s after repeated failures.")
                     time.sleep(sd)
                     return None
@@ -131,9 +132,10 @@ def fetch_wishlist_items(url, user_agent=None):
             soup = BeautifulSoup(resp.text, "html.parser")
             li_items = soup.select("li[id^='itemWrapper_']")
 
+            # CAPTCHA on first page
             if page == 1 and not li_items:
                 text = resp.text.lower()
-                sd = random.uniform(CAPTCHA_SLEEP * 0.5, CAPTCHA_SLEEP * 1.5)
+                sd = random.uniform(CAPTCHA_SLEEP*0.5, CAPTCHA_SLEEP*1.5)
                 if "captcha" in text or "enter the characters you see" in text:
                     log(f"CAPTCHA detected; sleeping {sd:.1f}s before retry.")
                 else:
@@ -145,39 +147,41 @@ def fetch_wishlist_items(url, user_agent=None):
                 log(f"No items found on page {page}")
                 break
 
-            before_count = len(seen_keys)
+            # Parse items on this page
             page_count = 0
             for li in li_items:
-                href_tag = li.select_one("a.a-touch-link-image[href]")
-                href = href_tag['href'].split("?")[0] if href_tag else None
-                full_url = href if href and href.startswith("http") else ("https://www.amazon.com" + href if href else None)
-                title_tag = li.select_one(".awl-item-title")
-                name = title_tag.get_text(strip=True) if title_tag else None
-                price = (li.get('data-price') or
-                         (li.select_one("span.a-offscreen").get_text(strip=True)
-                          if li.select_one("span.a-offscreen") else None))
-                key = full_url or name
-                if key not in seen_keys:
-                    seen_keys.add(key)
-                    log(f"Adding item {name} to item list...")
-                    items.append({"name": name, "url": full_url, "price": price})
+                link = li.select_one("a.a-touch-link-image[href]")
+                href = link['href'].split('?')[0] if link else None
+                full = href if href and href.startswith('http') else ("https://www.amazon.com"+href if href else None)
+                title = li.select_one(".awl-item-title")
+                name = title.get_text(strip=True) if title else None
+                price = li.get('data-price') or (li.select_one("span.a-offscreen").get_text(strip=True) if li.select_one("span.a-offscreen") else None)
+                key = full or name
+                if key not in seen:
+                    seen.add(key)
+                    items.append({"name": name, "url": full, "price": price})
                     page_count += 1
+                    log(f"Discovered new item: {name}")
 
-            total_count = len(seen_keys)
-            last_page = page
-            if page_count == 0:
-                log(f"No new items on page {last_page}; stopping pagination.")
+            total = len(seen)
+            log(f"Page {page}: found {page_count} new items (total {total})")
+
+            # Find next pagination token
+            token_input = soup.select_one("form.scroll-state input.showMoreUrl")
+            if token_input and token_input.get('value'):
+                next_url = "https://www.amazon.com" + token_input['value']
+                page += 1
+                sd = random.uniform(PAGE_SLEEP*0.5, PAGE_SLEEP*1.5)
+                log(f"Sleeping {sd:.1f}s before next page (page {page})")
+                time.sleep(sd)
+            else:
+                log("No further pages; pagination complete.")
                 break
 
-            page += 1
-            sd = random.uniform(PAGE_SLEEP * 0.5, PAGE_SLEEP * 1.5)
-            log(f"Sleeping {sd:.1f}s after retrieving page {last_page} "
-                f"(page items: {page_count}, total items: {total_count})")
-            time.sleep(sd)
-
         return items
+
     except Exception as e:
-        sd = random.uniform(FAIL_SLEEP * 0.5, FAIL_SLEEP * 1.5)
+        sd = random.uniform(FAIL_SLEEP*0.5, FAIL_SLEEP*1.5)
         log(f"Exception {e}; sleeping {sd:.1f}s.")
         time.sleep(sd)
         return None
