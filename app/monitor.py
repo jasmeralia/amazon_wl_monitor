@@ -150,9 +150,10 @@ def fetch_wishlist_items(url, user_agent=None):
             # Parse items on this page
             page_count = 0
             for li in li_items:
-                link = li.select_one("a.a-touch-link-image[href]")
+                # Use href starting with /dp/ for product link
+                link = li.select_one("a[href^='/dp']")
                 href = link['href'].split('?')[0] if link else None
-                full = href if href and href.startswith('http') else ("https://www.amazon.com"+href if href else None)
+                full = href if href and href.startswith('http') else ("https://www.amazon.com" + href if href else None)
                 title = li.select_one(".awl-item-title")
                 name = title.get_text(strip=True) if title else None
                 price = li.get('data-price') or (li.select_one("span.a-offscreen").get_text(strip=True) if li.select_one("span.a-offscreen") else None)
@@ -161,7 +162,7 @@ def fetch_wishlist_items(url, user_agent=None):
                     seen.add(key)
                     items.append({"name": name, "url": full, "price": price})
                     page_count += 1
-                    log(f"Discovered new item: {name} | {full}")
+                    log(f"Discovered new item: {name} | {full or 'URL not found'}")
 
             total = len(seen)
             log(f"Page {page}: found {page_count} new items (total {total})")
