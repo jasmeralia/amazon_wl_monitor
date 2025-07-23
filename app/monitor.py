@@ -31,6 +31,7 @@ FAIL_SLEEP = int(os.getenv("FAIL_SLEEP", "6000"))           # base seconds on fu
 RETRY_COUNT = int(os.getenv("RETRY_COUNT", "3"))            # retries on fetch failure
 RETRY_SLEEP = int(os.getenv("RETRY_SLEEP", "600"))          # base seconds between retries
 CAPTCHA_SLEEP = int(os.getenv("CAPTCHA_SLEEP", "1200"))     # base seconds on captcha/block
+NOTIFY_THRESHOLD = float(os.getenv("NOTIFY_THRESHOLD", "20"))  # percent
 # ========================
 
 # Mobile wishlist URL template
@@ -221,6 +222,17 @@ def save_cache(cache):
     json.dump(cache, open(CACHE_FILE, 'w'), indent=2)
 
 
+def format_price(price):
+    if price is None or price == "-Infinity":
+        return "Not Available"
+    try:
+        # Remove $ and commas if present, then convert to float
+        p = float(str(price).replace("$", "").replace(",", ""))
+        return f"${p:.2f}"
+    except Exception:
+        return "Not Available"
+
+
 def compare_items(old, new):
     o_map = { i.get('url') or i['name']: i for i in old }
     n_map = { i.get('url') or i['name']: i for i in new }
@@ -229,8 +241,24 @@ def compare_items(old, new):
     changed = []
     for k in set(o_map)&set(n_map):
         o, n = o_map[k], n_map[k]
-        if o.get('price') and n.get('price') and o['price']!=n['price']:
-            changed.append({'name': n['name'], 'url': n.get('url'), 'old_price': o['price'], 'new_price': n['price']})
+        op, np = o.get('price'), n.get('price')
+        # Only notify if price changed and meets threshold or either is -Infinity
+        if op != np:
+            if op == "-Infinity" or np == "-Infinity":
+                changed.append({'name': n['name'], 'url': n.get('url'), 'old_price': op, 'new_price': np})
+            else:
+                try:
+                    opf = float(str(op).replace("$", "").replace(",", ""))
+                    npf = float(str(np).replace("$", "").replace(",", ""))
+                    if opf == 0:
+                        pct = 100.0
+                    else:
+                        pct = abs((npf - opf) / opf) * 100
+                    if pct >= NOTIFY_THRESHOLD:
+                        changed.append({'name': n['name'], 'url': n.get('url'), 'old_price': op, 'new_price': np})
+                except Exception:
+                    # If price can't be parsed, always notify
+                    changed.append({'name': n['name'], 'url': n.get('url'), 'old_price': op, 'new_price': np})
     return added, removed, changed
 
 
@@ -267,7 +295,7 @@ def monitor():
                     body+="✅ Added:\n"
                     for it in a:
                         urlt=it.get('url') or "URL not found"
-                        body+=f"- {it['name']} | {it.get('price')} | {urlt}\n"
+                        body+=f"- {it['name']} | {format_price(it.get('price'))} | {urlt}\n"
                 if r:
                     body+="❌ Removed:\n"
                     for it in r:
@@ -277,7 +305,9 @@ def monitor():
                     body+="🔄 Price changes:\n"
                     for ch in c:
                         urlt=ch.get('url') or "URL not found"
-                        body+=f"- {ch['name']}: {ch['old_price']} -> {ch['new_price']} | {urlt}\n"
+                        oldp = format_price(ch['old_price'])
+                        newp = format_price(ch['new_price'])
+                        body+=f"- {ch['name']}: {oldp} -> {newp} | {urlt}\n"
                 send_email(f"Wishlist Update: {name}", body)
                 cache[url] = items
             else:
