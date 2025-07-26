@@ -285,8 +285,9 @@ def monitor():
             log(f"User-Agent for {name}: {ua}")
             log(f"Checking {name}: {url}")
             items = fetch_wishlist_items(url, ua)
-            if items is None:
-                log(f"Skipping {name}, fetch error.")
+            # if we got back an empty list, assume the scrape failed or returned no data
+            if items is None or not items:
+                log(f"No items fetched for {name}; skipping compare.")
                 continue
             a, r, c = compare_items(cache.get(url,[]), items)
             if a or r or c:
