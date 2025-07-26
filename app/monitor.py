@@ -291,7 +291,16 @@ def monitor():
                 continue
             a, r, c = compare_items(cache.get(url,[]), items)
             if a or r or c:
-                body = f"Changes in '{name}': {url}\n\n"
+                # build a summary header
+                total    = len(items)
+                added    = len(a)
+                removed  = len(r)
+                changed  = len(c)
+                unchanged = total - added - removed - changed
+
+                body  = f"Changes in '{name}': {url}\n"
+                body += f"Summary: {added} added, {removed} removed, {changed} price changed, {unchanged} unchanged\n\n"
+
                 if a:
                     body+="✅ Added:\n"
                     for it in a:
