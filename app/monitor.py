@@ -153,7 +153,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
                 if wishlist_name:
                     fname = f"/data/{sanitize_filename(wishlist_name)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_no_li_items_page{page}.html"
                     try:
-                        with open(fname, "w") as f:
+                        with open(fname, "w", encoding="utf-8") as f:
                             f.write(resp.text)
                         log(f"Wrote HTML debug to {fname}")
                     except Exception as e:
@@ -187,7 +187,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
                 if wishlist_name:
                     fname = f"/data/{sanitize_filename(wishlist_name)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_li_items_no_page_count_page{page}.html"
                     try:
-                        with open(fname, "w") as f:
+                        with open(fname, "w", encoding="utf-8") as f:
                             f.write(resp.text)
                         log(f"Wrote HTML debug to {fname}")
                     except Exception as e:
@@ -217,7 +217,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
-        raw = json.load(open(CACHE_FILE))
+        raw = json.load(open(CACHE_FILE, encoding="utf-8"))
         new = {}
         for u, itms in raw.items():
             cleaned = []
@@ -232,7 +232,7 @@ def load_cache():
                     cleaned.append({'name': itm, 'url': None, 'price': None})
             new[u] = cleaned
         try:
-            json.dump(new, open(CACHE_FILE, 'w'), indent=2)
+            json.dump(new, open(CACHE_FILE, 'w', encoding="utf-8"), indent=2)
         except:
             pass
         return new
@@ -240,7 +240,7 @@ def load_cache():
 
 
 def save_cache(cache):
-    json.dump(cache, open(CACHE_FILE, 'w'), indent=2)
+    json.dump(cache, open(CACHE_FILE, 'w', encoding="utf-8"), indent=2)
 
 
 def format_price(price):
@@ -288,7 +288,8 @@ def log(msg):
     line = f"[{ts}] {msg}"
     print(line, flush=True)
     try:
-        open("/data/monitor.log","a").write(line+"\n")
+        with open("/data/monitor.log", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
     except:
         pass
 
