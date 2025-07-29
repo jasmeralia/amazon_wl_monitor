@@ -9,6 +9,7 @@ from email.mime.multipart import MIMEMultipart
 import time
 import sys
 import random
+from datetime import datetime
 
 # ======= SETTINGS =======
 WISHLISTS_RAW = os.getenv("WISHLISTS", "")
@@ -95,7 +96,12 @@ def send_email(subject, body):
         log(f"Failed to send email: {e}")
 
 
-def fetch_wishlist_items(url, user_agent=None):
+def sanitize_filename(name):
+    # Replace non-alphanumeric with underscores
+    return re.sub(r'[^A-Za-z0-9]+', '_', name)
+
+
+def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
     session = requests.Session()
     next_url = normalize_wishlist_url(url)
     log(f"Using mobile URL: {next_url}")
@@ -133,19 +139,26 @@ def fetch_wishlist_items(url, user_agent=None):
             soup = BeautifulSoup(resp.text, "html.parser")
             li_items = soup.select("li[id^='itemWrapper_']")
 
-            # CAPTCHA on first page
-            if page == 1 and not li_items:
-                text = resp.text.lower()
+            # CAPTCHA detection on any page
+            text = resp.text.lower()
+            captcha_detected = "captcha" in text or "enter the characters you see" in text
+            if captcha_detected:
                 sd = random.uniform(CAPTCHA_SLEEP*0.5, CAPTCHA_SLEEP*1.5)
-                if "captcha" in text or "enter the characters you see" in text:
-                    log(f"CAPTCHA detected; sleeping {sd:.1f}s before retry.")
-                else:
-                    log(f"Unexpected empty HTML; sleeping {sd:.1f}s.")
+                log(f"CAPTCHA detected on page {page}; sleeping {sd:.1f}s before moving to next wishlist.")
                 time.sleep(sd)
                 return None
 
             if not li_items:
                 log(f"No items found on page {page}")
+                # Log HTML to file for debugging
+                if wishlist_name:
+                    fname = f"/data/{sanitize_filename(wishlist_name)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_no_li_items_page{page}.html"
+                    try:
+                        with open(fname, "w") as f:
+                            f.write(resp.text)
+                        log(f"Wrote HTML debug to {fname}")
+                    except Exception as e:
+                        log(f"Failed to write HTML debug file: {e}")
                 break
 
             # Parse items on this page
@@ -166,11 +179,20 @@ def fetch_wishlist_items(url, user_agent=None):
                     log(f"Discovered new item: {name} | {full or 'URL not found'}")
 
             total = len(seen)
-            log(f"Page {page}: found {page_count} new items (total {total})")
+            log(f"Page {page}: found {page_count} items (total {total})")
 
             # If no new items on this page, stop
             if page_count == 0:
                 log(f"No new items on page {page}; ending pagination.")
+                # Log HTML to file for debugging
+                if wishlist_name:
+                    fname = f"/data/{sanitize_filename(wishlist_name)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_li_items_no_page_count_page{page}.html"
+                    try:
+                        with open(fname, "w") as f:
+                            f.write(resp.text)
+                        log(f"Wrote HTML debug to {fname}")
+                    except Exception as e:
+                        log(f"Failed to write HTML debug file: {e}")
                 break
 
             # Find next pagination token
@@ -284,19 +306,26 @@ def monitor():
             ua = get_random_user_agent()
             log(f"User-Agent for {name}: {ua}")
             log(f"Checking {name}: {url}")
-            items = fetch_wishlist_items(url, ua)
-            # if we got back an empty list, assume the scrape failed or returned no data
+            items = fetch_wishlist_items(url, ua, wishlist_name=name)
             if items is None or not items:
                 log(f"No items fetched for {name}; skipping compare.")
                 continue
             a, r, c = compare_items(cache.get(url,[]), items)
             if a or r or c:
-                # build a summary header
+                # Correct unchanged calculation: items present in both old and new, but not in changed
+                old_items = cache.get(url, [])
+                o_map = {i.get('url') or i['name']: i for i in old_items}
+                n_map = {i.get('url') or i['name']: i for i in items}
+                changed_keys = set((ch.get('url') or ch['name']) for ch in c)
+                unchanged = len([
+                    k for k in set(o_map) & set(n_map)
+                    if k not in changed_keys
+                ])
+
                 total    = len(items)
                 added    = len(a)
                 removed  = len(r)
                 changed  = len(c)
-                unchanged = total - added - removed - changed
 
                 body  = f"Changes in '{name}': {url}\n"
                 body += f"Summary: {added} added, {removed} removed, {changed} price changed, {unchanged} unchanged\n\n"
