@@ -186,14 +186,49 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
                 name = title.get_text(strip=True) if title else None
                 price = li.get('data-price') or (li.select_one("span.a-offscreen").get_text(strip=True) if li.select_one("span.a-offscreen") else None)
                 key = full or name
-                if key not in seen:
+                # Check if item is already in cache (old_items)
+                is_new = key not in seen
+                in_cache = False
+                # Try to check cache if available
+                if 'cache' in locals() and isinstance(cache, dict):
+                    cache_items = cache.get(url, [])
+                    cache_keys = set(i.get('url') or i['name'] for i in cache_items)
+                    in_cache = key in cache_keys
+                if is_new:
                     seen.add(key)
                     items.append({"name": name, "url": full, "price": price})
+                    msg = f"Discovered new item: {name} | {full or 'URL not found'}"
+                    if in_cache:
+                        msg += " (already in cache)"
+                    else:
+                        msg += " (not in cache)"
+                    log(msg)
                     page_count += 1
-                    log(f"Discovered new item: {name} | {full or 'URL not found'}")
+                else:
+                    msg = f"Item already seen this run: {name} | {full or 'URL not found'}"
+                    if in_cache:
+                        msg += " (already in cache)"
+                    else:
+                        msg += " (not in cache)"
+                    log(msg)
 
             total = len(seen)
             log(f"Page {page}: found {page_count} items (total {total})")
+
+            # Log HTML if page > 1 and less than 10 items found (possible non-existent page)
+            if page > 1 and page_count < 10:
+                log(f"Page {page} returned less than 10 items; logging HTML for debugging.")
+                if wishlist_name:
+                    fname = (
+                        f"/data/{sanitize_filename(wishlist_name)}_"
+                        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_few_items_page{page}.html"
+                    )
+                    try:
+                        with open(fname, "w", encoding="utf-8") as f:
+                            f.write(resp.text)
+                        log(f"Wrote HTML debug to {fname}")
+                    except Exception as e:
+                        log(f"Failed to write HTML debug file: {e}")
 
             # If no new items on this page, stop
             if page_count == 0:
