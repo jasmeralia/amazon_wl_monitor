@@ -121,36 +121,43 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
 
     try:
         while next_url:
-            # Fetch page
-            for attempt in range(1, RETRY_COUNT+1):
-                try:
-                    resp = session.get(next_url, headers=headers, timeout=15)
-                    if resp.status_code == 200:
-                        break
-                    log(f"Attempt {attempt}: HTTP {resp.status_code} for page {page}")
-                except Exception as e:
-                    log(f"Attempt {attempt}: Exception fetching page {page}: {e}")
-                if attempt < RETRY_COUNT:
-                    sd = random.uniform(RETRY_SLEEP*0.5, RETRY_SLEEP*1.5)
-                    log(f"Sleeping {sd:.1f}s before retry {attempt+1}.")
-                    time.sleep(sd)
-                else:
-                    sd = random.uniform(FAIL_SLEEP*0.5, FAIL_SLEEP*1.5)
-                    log(f"Sleeping {sd:.1f}s after repeated failures.")
-                    time.sleep(sd)
-                    return None
+            captcha_attempts = 0
+            while True:
+                for attempt in range(1, RETRY_COUNT + 1):
+                    try:
+                        resp = session.get(next_url, headers=headers, timeout=15)
+                        if resp.status_code == 200:
+                            break
+                        log(f"Attempt {attempt}: HTTP {resp.status_code} for page {page}")
+                    except Exception as e:
+                        log(f"Attempt {attempt}: Exception fetching page {page}: {e}")
+                    if attempt < RETRY_COUNT:
+                        sd = random.uniform(RETRY_SLEEP * 0.5, RETRY_SLEEP * 1.5)
+                        log(f"Sleeping {sd:.1f}s before retry {attempt + 1}.")
+                        time.sleep(sd)
+                    else:
+                        sd = random.uniform(FAIL_SLEEP * 0.5, FAIL_SLEEP * 1.5)
+                        log(f"Sleeping {sd:.1f}s after repeated failures.")
+                        time.sleep(sd)
+                        return None
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            li_items = soup.select("li[id^='itemWrapper_']")
+                soup = BeautifulSoup(resp.text, "html.parser")
+                li_items = soup.select("li[id^='itemWrapper_']")
 
-            # CAPTCHA detection on any page
-            text = resp.text.lower()
-            captcha_detected = "captcha" in text or "enter the characters you see" in text
-            if captcha_detected:
-                sd = random.uniform(CAPTCHA_SLEEP*0.5, CAPTCHA_SLEEP*1.5)
-                log(f"CAPTCHA detected on page {page}; sleeping {sd:.1f}s before moving to next wishlist.")
-                time.sleep(sd)
-                return None
+                # CAPTCHA detection on any page
+                text = resp.text.lower()
+                captcha_detected = "captcha" in text or "enter the characters you see" in text
+                if captcha_detected:
+                    captcha_attempts += 1
+                    sd = random.uniform(CAPTCHA_SLEEP * 0.5, CAPTCHA_SLEEP * 1.5)
+                    log(f"CAPTCHA detected on page {page}; attempt {captcha_attempts}/{RETRY_COUNT}. Sleeping {sd:.1f}s before retry.")
+                    time.sleep(sd)
+                    if captcha_attempts < RETRY_COUNT:
+                        continue  # Retry the same page
+                    else:
+                        log(f"Max CAPTCHA retries reached for page {page}. Skipping wishlist.")
+                        return None
+                break  # No CAPTCHA, proceed
 
             if not li_items:
                 log(f"No items found on page {page}")
@@ -210,7 +217,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
             if token_input and token_input.get('value'):
                 next_url = "https://www.amazon.com" + token_input['value']
                 page += 1
-                sd = random.uniform(PAGE_SLEEP*0.5, PAGE_SLEEP*1.5)
+                sd = random.uniform(PAGE_SLEEP * 0.5, PAGE_SLEEP * 1.5)
                 log(f"Sleeping {sd:.1f}s before next page (page {page})")
                 time.sleep(sd)
             else:
@@ -220,7 +227,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
         return items
 
     except Exception as e:
-        sd = random.uniform(FAIL_SLEEP*0.5, FAIL_SLEEP*1.5)
+        sd = random.uniform(FAIL_SLEEP * 0.5, FAIL_SLEEP * 1.5)
         log(f"Exception {e}; sleeping {sd:.1f}s.")
         time.sleep(sd)
         return None
