@@ -151,7 +151,10 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
                 log(f"No items found on page {page}")
                 # Log HTML to file for debugging
                 if wishlist_name:
-                    fname = f"/data/{sanitize_filename(wishlist_name)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_no_li_items_page{page}.html"
+                    fname = (
+                        f"/data/{sanitize_filename(wishlist_name)}_"
+                        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_no_li_items_page{page}.html"
+                    )
                     try:
                         with open(fname, "w", encoding="utf-8") as f:
                             f.write(resp.text)
@@ -185,7 +188,10 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
                 log(f"No new items on page {page}; ending pagination.")
                 # Log HTML to file for debugging
                 if wishlist_name:
-                    fname = f"/data/{sanitize_filename(wishlist_name)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_li_items_no_page_count_page{page}.html"
+                    fname = (
+                        f"/data/{sanitize_filename(wishlist_name)}_"
+                        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_li_items_no_page_count_page{page}.html"
+                    )
                     try:
                         with open(fname, "w", encoding="utf-8") as f:
                             f.write(resp.text)
@@ -255,18 +261,23 @@ def format_price(price):
 
 
 def compare_items(old, new):
-    o_map = { i.get('url') or i['name']: i for i in old }
-    n_map = { i.get('url') or i['name']: i for i in new }
-    added = [n_map[k] for k in set(n_map)-set(o_map)]
-    removed = [o_map[k] for k in set(o_map)-set(n_map)]
+    o_map = {i.get('url') or i['name']: i for i in old}
+    n_map = {i.get('url') or i['name']: i for i in new}
+    added = [n_map[k] for k in set(n_map) - set(o_map)]
+    removed = [o_map[k] for k in set(o_map) - set(n_map)]
     changed = []
-    for k in set(o_map)&set(n_map):
+    for k in set(o_map) & set(n_map):
         o, n = o_map[k], n_map[k]
         op, np = o.get('price'), n.get('price')
         # Only notify if price changed and meets threshold or either is -Infinity
         if op != np:
             if op == "-Infinity" or np == "-Infinity":
-                changed.append({'name': n['name'], 'url': n.get('url'), 'old_price': op, 'new_price': np})
+                changed.append({
+                    'name': n['name'],
+                    'url': n.get('url'),
+                    'old_price': op,
+                    'new_price': np
+                })
             else:
                 try:
                     opf = float(str(op).replace("$", "").replace(",", ""))
@@ -276,10 +287,20 @@ def compare_items(old, new):
                     else:
                         pct = abs((npf - opf) / opf) * 100
                     if pct >= NOTIFY_THRESHOLD:
-                        changed.append({'name': n['name'], 'url': n.get('url'), 'old_price': op, 'new_price': np})
+                        changed.append({
+                            'name': n['name'],
+                            'url': n.get('url'),
+                            'old_price': op,
+                            'new_price': np
+                        })
                 except Exception:
                     # If price can't be parsed, always notify
-                    changed.append({'name': n['name'], 'url': n.get('url'), 'old_price': op, 'new_price': np})
+                    changed.append({
+                        'name': n['name'],
+                        'url': n.get('url'),
+                        'old_price': op,
+                        'new_price': np
+                    })
     return added, removed, changed
 
 
@@ -302,7 +323,8 @@ def monitor():
         random.shuffle(lists)
         for wl in lists:
             name, url = wl['name'], wl['url']
-            if not url: continue
+            if not url:
+                continue
             ua = get_random_user_agent()
             log(f"User-Agent for {name}: {ua}")
             log(f"Checking {name}: {url}")
@@ -310,52 +332,61 @@ def monitor():
             if items is None or not items:
                 log(f"No items fetched for {name}; skipping compare.")
                 continue
-            a, r, c = compare_items(cache.get(url,[]), items)
+            a, r, c = compare_items(cache.get(url, []), items)
             if a or r or c:
                 # Correct unchanged calculation: items present in both old and new, but not in changed
                 old_items = cache.get(url, [])
                 o_map = {i.get('url') or i['name']: i for i in old_items}
                 n_map = {i.get('url') or i['name']: i for i in items}
-                changed_keys = set((ch.get('url') or ch['name']) for ch in c)
+                changed_keys = set(
+                    (ch.get('url') or ch['name']) for ch in c
+                )
                 unchanged = len([
                     k for k in set(o_map) & set(n_map)
                     if k not in changed_keys
                 ])
 
-                total    = len(items)
-                added    = len(a)
-                removed  = len(r)
-                changed  = len(c)
+                total = len(items)
+                added = len(a)
+                removed = len(r)
+                changed = len(c)
 
-                body  = f"Changes in '{name}': {url}\n"
-                body += f"Summary: {added} added, {removed} removed, {changed} price changed, {unchanged} unchanged\n\n"
+                body = (
+                    f"Changes in '{name}': {url}\n"
+                    f"Summary: {added} added, {removed} removed, "
+                    f"{changed} price changed, {unchanged} unchanged\n\n"
+                )
 
                 if a:
-                    body+="✅ Added:\n"
+                    body += "✅ Added:\n"
                     for it in a:
-                        urlt=it.get('url') or "URL not found"
-                        body+=f"- {it['name']} | {format_price(it.get('price'))} | {urlt}\n"
+                        urlt = it.get('url') or "URL not found"
+                        body += (
+                            f"- {it['name']} | {format_price(it.get('price'))} | {urlt}\n"
+                        )
                 if r:
-                    body+="❌ Removed:\n"
+                    body += "❌ Removed:\n"
                     for it in r:
-                        urlt=it.get('url') or "URL not found"
-                        body+=f"- {it['name']} | {urlt}\n"
+                        urlt = it.get('url') or "URL not found"
+                        body += f"- {it['name']} | {urlt}\n"
                 if c:
-                    body+="🔄 Price changes:\n"
+                    body += "🔄 Price changes:\n"
                     for ch in c:
-                        urlt=ch.get('url') or "URL not found"
+                        urlt = ch.get('url') or "URL not found"
                         oldp = format_price(ch['old_price'])
                         newp = format_price(ch['new_price'])
-                        body+=f"- {ch['name']}: {oldp} -> {newp} | {urlt}\n"
+                        body += (
+                            f"- {ch['name']}: {oldp} -> {newp} | {urlt}\n"
+                        )
                 send_email(f"Wishlist Update: {name}", body)
                 cache[url] = items
             else:
                 log("No changes detected.")
-            sd = random.uniform(WISHLIST_SLEEP*0.5, WISHLIST_SLEEP*1.5)
+            sd = random.uniform(WISHLIST_SLEEP * 0.5, WISHLIST_SLEEP * 1.5)
             log(f"Sleeping {sd:.1f}s before next wishlist.")
             time.sleep(sd)
         save_cache(cache)
-        sd = random.uniform(CHECK_INTERVAL*0.5, CHECK_INTERVAL*1.5)
+        sd = random.uniform(CHECK_INTERVAL * 0.5, CHECK_INTERVAL * 1.5)
         log(f"Sleeping {sd:.1f}s before next cycle.")
         time.sleep(sd)
 
