@@ -53,10 +53,12 @@ TOP_MOBILE_USER_AGENTS = [
 
 
 def get_random_user_agent():
+    """Return a random mobile user agent string."""
     return random.choice(TOP_MOBILE_USER_AGENTS)
 
 
 def normalize_wishlist_url(url):
+    """Normalize various Amazon wishlist URLs to the mobile wishlist URL format."""
     m = re.search(r"/hz/wishlist/ls/([A-Za-z0-9]+)/?", url)
     if not m:
         m = re.search(r"/gp/registry/(?:wishlist|list)/([A-Za-z0-9]+)/?", url)
@@ -66,6 +68,7 @@ def normalize_wishlist_url(url):
 
 
 def parse_wishlists(env_value):
+    """Parse the WISHLISTS environment variable into a list of wishlists."""
     wishlists = []
     for entry in env_value.split(","):
         entry = entry.strip()
@@ -80,6 +83,7 @@ def parse_wishlists(env_value):
 
 
 def send_email(subject, body):
+    """Send an email notification with the given subject and body."""
     msg = MIMEMultipart()
     msg["From"] = EMAIL_ADDRESS
     msg["To"] = TO_ADDRESS
@@ -96,11 +100,12 @@ def send_email(subject, body):
 
 
 def sanitize_filename(name):
-    # Replace non-alphanumeric with underscores
+    """Replace non-alphanumeric characters in a string with underscores."""
     return re.sub(r'[^A-Za-z0-9]+', '_', name)
 
 
 def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
+    """Fetch all items from a wishlist, handling pagination and CAPTCHAs."""
     session = requests.Session()
     next_url = normalize_wishlist_url(url)
     log(f"Using mobile URL: {next_url}")
@@ -222,6 +227,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
 
 
 def load_cache():
+    """Load the wishlist cache from disk, cleaning up legacy formats if needed."""
     if os.path.exists(CACHE_FILE):
         raw = json.load(open(CACHE_FILE, encoding="utf-8"))
         new = {}
@@ -246,10 +252,12 @@ def load_cache():
 
 
 def save_cache(cache):
+    """Save the wishlist cache to disk."""
     json.dump(cache, open(CACHE_FILE, 'w', encoding="utf-8"), indent=2)
 
 
 def format_price(price):
+    """Format a price as a string with two decimals and a dollar sign, or 'Not Available'."""
     if price is None or price == "-Infinity":
         return "Not Available"
     try:
@@ -261,6 +269,7 @@ def format_price(price):
 
 
 def compare_items(old, new):
+    """Compare old and new wishlist items, returning added, removed, and changed lists."""
     o_map = {i.get('url') or i['name']: i for i in old}
     n_map = {i.get('url') or i['name']: i for i in new}
     added = [n_map[k] for k in set(n_map) - set(o_map)]
@@ -305,6 +314,7 @@ def compare_items(old, new):
 
 
 def log(msg):
+    """Log a message with a timestamp to both stdout and the monitor log file."""
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     print(line, flush=True)
@@ -316,6 +326,7 @@ def log(msg):
 
 
 def monitor():
+    """Main monitoring loop for checking wishlists and sending notifications."""
     log("Starting wishlist monitor...")
     cache = load_cache()
     lists = parse_wishlists(WISHLISTS_RAW)
@@ -346,7 +357,6 @@ def monitor():
                     if k not in changed_keys
                 ])
 
-                total = len(items)
                 added = len(a)
                 removed = len(r)
                 changed = len(c)

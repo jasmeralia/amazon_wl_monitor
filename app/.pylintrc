@@ -1,0 +1,5 @@
+[FORMAT]
+max-line-length=175
+
+[MESSAGES CONTROL]
+disable=broad-exception-caught,bare-except,too-many-locals,too-many-statements,too-many-branches
