@@ -1,15 +1,14 @@
 import os
 import re
-import requests
-from bs4 import BeautifulSoup
+import time
 import json
+import random
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import time
-import sys
-import random
 from datetime import datetime
+from bs4 import BeautifulSoup
+import requests
 
 # ======= SETTINGS =======
 WISHLISTS_RAW = os.getenv("WISHLISTS", "")
