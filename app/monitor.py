@@ -32,6 +32,7 @@ RETRY_COUNT = int(os.getenv("RETRY_COUNT", "3"))            # retries on fetch f
 RETRY_SLEEP = int(os.getenv("RETRY_SLEEP", "600"))          # base seconds between retries
 CAPTCHA_SLEEP = int(os.getenv("CAPTCHA_SLEEP", "1200"))     # base seconds on captcha/block
 NOTIFY_THRESHOLD = float(os.getenv("NOTIFY_THRESHOLD", "20"))  # percent
+DEBUG_HTML = os.getenv("DEBUG_HTML", "0") == "1"
 # ========================
 
 # Mobile wishlist URL template
@@ -162,7 +163,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
             if not li_items:
                 log(f"No items found on page {page}")
                 # Log HTML to file for debugging
-                if wishlist_name:
+                if DEBUG_HTML and wishlist_name:
                     fname = (
                         f"/data/{sanitize_filename(wishlist_name)}_"
                         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_no_li_items_page{page}.html"
@@ -218,7 +219,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
             # Log HTML if page > 1 and less than 10 items found (possible non-existent page)
             if page > 1 and page_count < 10:
                 log(f"Page {page} returned less than 10 items; logging HTML for debugging.")
-                if wishlist_name:
+                if DEBUG_HTML and wishlist_name:
                     fname = (
                         f"/data/{sanitize_filename(wishlist_name)}_"
                         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_few_items_page{page}.html"
@@ -234,7 +235,7 @@ def fetch_wishlist_items(url, user_agent=None, wishlist_name=None):
             if page_count == 0:
                 log(f"No new items on page {page}; ending pagination.")
                 # Log HTML to file for debugging
-                if wishlist_name:
+                if DEBUG_HTML and wishlist_name:
                     fname = (
                         f"/data/{sanitize_filename(wishlist_name)}_"
                         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_li_items_no_page_count_page{page}.html"
